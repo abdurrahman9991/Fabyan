@@ -62,7 +62,7 @@
         async function fetchUserData() {
             if (!user) return;
             try {
-                const res = await fetch(`http://localhost:3000/api/user/${user.id}`);
+                const res = await fetch(`https://backed-sooty.vercel.app/api/user/${user.id}`);
                 if (res.ok) {
                     const data = await res.json();
                     currentBalance = data.balance;
@@ -186,17 +186,17 @@
             `;
         }
 
-        // Add modal HTML to the body (replace the ad image with Monetag rewarded ad)
+        // Add modal HTML to the body
         const adModalHTML = `
         <div id="ad-modal" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 hidden">
             <div class="bg-white rounded-xl shadow-lg p-8 max-w-sm w-full text-center relative">
                 <h2 class="text-xl font-bold mb-4">Sponsored Ad</h2>
                 <p class="mb-6">Watch this ad to earn your reward!</p>
-                <div class="mb-6" id="monetag-ad-container">
-                    <!-- Monetag rewarded ad will be shown here -->
+                <div class="mb-6">
+                    <img src="https://placehold.co/300x150?text=Ad+Banner" alt="Ad" class="rounded-lg mx-auto">
                 </div>
-                <div id="ad-timer" class="text-blue-700 font-semibold mb-4"></div>
-                <button id="ad-close-btn" class="bg-gray-300 text-gray-700 px-4 py-2 rounded font-semibold" style="display:none;">Close</button>
+                <div id="ad-timer" class="text-blue-700 font-semibold mb-4">5</div>
+                <button id="ad-close-btn" class="bg-gray-300 text-gray-700 px-4 py-2 rounded font-semibold" disabled>Close</button>
             </div>
         </div>
         `;
@@ -211,20 +211,23 @@
             closeBtn.style.display = 'none';
             modal.classList.remove('hidden');
 
-            // Monetag Rewarded Interstitial
+            console.log('Checking for Monetag function:', typeof show_10044805);
+
+            // Use Monetag Rewarded Interstitial
             if (typeof show_10044805 === 'function') {
+                console.log('Monetag function found, showing ad...');
                 show_10044805().then(() => {
-                    // User watched the ad, reward them
+                    alert('You have seen an ad!');
                     currentBalance += parseFloat(reward);
-                    alert(`You earned $${reward}!`);
                     modal.classList.add('hidden');
                     if (typeof onComplete === 'function') onComplete();
-                }).catch(() => {
+                }).catch((err) => {
+                    console.log('Ad was not completed or failed:', err);
                     alert('Ad was not completed. No reward added.');
                     modal.classList.add('hidden');
                 });
             } else {
-                // Fallback if Monetag is not loaded
+                console.log('Monetag function NOT found!');
                 timerEl.textContent = 'Ad failed to load. Please try again.';
                 closeBtn.style.display = '';
                 closeBtn.onclick = () => {
@@ -434,10 +437,34 @@
             await fetchUserData();
             loadHome();
         })();
+        console.log('Checking for Monetag function:', typeof show_98765432);
+if (typeof show_98765432 === 'function') {
+    show_98765432().then(() => {
+        // reward user
+    });
+}
+
+// Call this once (e.g., after page load or when user navigates to a section)
+if (typeof show_10044805 === 'function') {
+    show_10044805({
+        type: 'inApp',
+        inAppSettings: {
+            frequency: 2,
+            capping: 0.1,
+            interval: 30,
+            timeout: 5,
+            everyPage: false
+        }
+    });
+} else {
+    console.log('Monetag in-app function NOT found!');
+}
     </script>
+
 
     <!-- Monetag Ad Script -->
 <script async="async" data-cfasync="false" src="//pl20548485.highcpmrevenuegate.com/1c6b4e2b3a2b6f7b7e1b6e2e3e3b3e2e/invoke.js"></script>
+<script src='//libtl.com/sdk.js' data-zone='10044805' data-sdk='show_10044805'></script>
 <!--
     ⚠️ SECURITY WARNING:
     Never paste your Telegram bot token here or in any frontend code.
