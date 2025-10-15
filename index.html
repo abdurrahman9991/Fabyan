@@ -211,16 +211,16 @@
             closeBtn.style.display = 'none';
             modal.classList.remove('hidden');
 
-            // Show Monetag rewarded interstitial ad
-            if (typeof show_10042745 === 'function') {
-                show_10042745().then(() => {
+            // Monetag Rewarded Interstitial
+            if (typeof show_10044805 === 'function') {
+                show_10044805().then(() => {
                     // User watched the ad, reward them
                     currentBalance += parseFloat(reward);
                     alert(`You earned $${reward}!`);
                     modal.classList.add('hidden');
                     if (typeof onComplete === 'function') onComplete();
                 }).catch(() => {
-                    alert('Ad was not completed.');
+                    alert('Ad was not completed. No reward added.');
                     modal.classList.add('hidden');
                 });
             } else {
