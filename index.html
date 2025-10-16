@@ -6,6 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Supabase JS SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
 </head>
 <body class="bg-gray-50 min-h-screen flex flex-col">
 
@@ -50,6 +52,11 @@
     <!-- Telegram WebApp JS SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script>
+        // Initialize Supabase client (use anon/public key only for demo)
+        const supabaseUrl = 'https://YOUR_PROJECT_ID.supabase.co';
+        const supabaseKey = 'YOUR_ANON_KEY'; // Never use service key here!
+        const supabase = supabase.createClient(supabaseUrl, supabaseKey);
+
         // Telegram WebApp user authentication
         const tg = window.Telegram.WebApp;
         const user = tg.initDataUnsafe?.user;
@@ -117,6 +124,14 @@
                     <div class="bg-white rounded-xl shadow p-5 flex flex-col items-center">
                         <span class="text-gray-500 text-xs mb-1">Completed Tasks</span>
                         <span class="text-lg font-bold text-blue-700">${totalCompletedTasks}</span>
+                    </div>
+                    <div class="bg-white rounded-xl shadow p-5 flex flex-col items-center">
+                        <span class="text-gray-500 text-xs mb-1">Referrals</span>
+                        <span class="text-lg font-bold text-purple-700">${userData?.referral_count || 0}</span>
+                    </div>
+                    <div class="bg-white rounded-xl shadow p-5 flex flex-col items-center">
+                        <span class="text-gray-500 text-xs mb-1">Referral Bonus</span>
+                        <span class="text-lg font-bold text-green-700">$${(userData?.referral_bonus || 0).toFixed(2)}</span>
                     </div>
                 </section>
             `;
@@ -214,28 +229,60 @@
             closeBtn.style.display = 'none';
             modal.classList.remove('hidden');
 
-            console.log('Checking for Monetag function:', typeof show_10044805);
-
             // Use Monetag Rewarded Interstitial
             if (typeof show_10044805 === 'function') {
-                console.log('Monetag function found, showing ad...');
-                show_10044805().then(() => {
+                show_10044805().then(async () => {
                     alert('You have seen an ad!');
-                    rewardUserForTask(user.id, reward); // reward is the amount for the task
+                    // Reward the user after ad is watched
+                    await rewardUserForTask(user.id, reward);
                     modal.classList.add('hidden');
                     if (typeof onComplete === 'function') onComplete();
                 }).catch((err) => {
-                    console.log('Ad was not completed or failed:', err);
                     alert('Ad was not completed. No reward added.');
                     modal.classList.add('hidden');
                 });
             } else {
-                console.log('Monetag function NOT found!');
                 timerEl.textContent = 'Ad failed to load. Please try again.';
                 closeBtn.style.display = '';
                 closeBtn.onclick = () => {
                     modal.classList.add('hidden');
                 };
+            }
+        }
+
+        // Function to reward user for completing a task and update completed task counter
+        async function rewardUserForTask(userId, rewardAmount) {
+            try {
+                // Fetch current user data
+                const userData = await fetchUserData(userId);
+                if (!userData) throw new Error('User data not found');
+
+                // Prepare updated values
+                const newBalance = (userData.balance || 0) + parseFloat(rewardAmount);
+                const newCompletedTasks = (userData.completed_tasks || 0) + 1;
+
+                // Update user in backend
+                const res = await fetch('https://backed-sooty.vercel.app/api/user/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id: userId,
+                        balance: newBalance,
+                        completed_tasks: newCompletedTasks
+                    })
+                });
+                const result = await res.json();
+                if (result.ok) {
+                    // Update local variables and UI
+                    currentBalance = newBalance;
+                    totalCompletedTasks = newCompletedTasks;
+                    // Refresh stats on UI
+                    loadHome();
+                } else {
+                    alert('Failed to update user stats.');
+                }
+            } catch (e) {
+                alert('Error rewarding user: ' + e.message);
             }
         }
 
@@ -293,7 +340,17 @@
                     <span class="text-lg font-bold text-green-600">$${currentBalance.toFixed(2)}</span>
                 </div>
                 <div>
-                    <span class="block text-gray-500 text-xs mb-1">User Number</span>
+                    <span class="block text-gray-500 text-xs mb-1">                    async function rewardUserForTask(userId, rewardAmount) {
+                        try {
+                            console.log('Rewarding user:', userId);
+                            const userData = await fetchUserData(userId);
+                            console.log('Fetched user data:', userData);
+                            if (!userData) throw new Error('User data not found');
+                            // ...rest of code...
+                        } catch (e) {
+                            alert('Error rewarding user: ' + e.message);
+                        }
+                    }umber</span>
                     <span class="text-lg font-bold">${user ? user.id : '-'}</span>
                 </div>
             </div>
@@ -416,30 +473,45 @@
             };
         }
 
-        // Utility function to set the active navbar button
-        function setActive(activeId) {
-            document.querySelectorAll('.nav-btn').forEach(btn => {
-                if (btn.id === activeId) {
-                    btn.classList.add('text-blue-700');
-                    btn.classList.remove('text-gray-500');
-                } else {
-                    btn.classList.remove('text-blue-700');
-                    btn.classList.add('text-gray-500');
-                }
-            });
+        // Extract referral ID from Telegram WebApp start parameter
+        function getReferralId() {
+            // Telegram Mini App passes start param as tg.initDataUnsafe.start_param
+            return tg.initDataUnsafe?.start_param || null;
         }
 
-        document.getElementById('nav-home').onclick = loadHome;
-        document.getElementById('nav-task').onclick = loadTask;
-        document.getElementById('nav-reffer').onclick = loadReffer;
-        document.getElementById('nav-wallet').onclick = loadWallet;
+        // On first user creation/upsert, send referred_by if present
+        async function upsertUserIfNeeded() {
+            if (!user) return;
+            // Fetch user data first
+            const userData = await fetchUserData(user.id);
+            if (!userData) {
+                // New user, upsert with referral if present
+                const referred_by = getReferralId();
+                await fetch('https://backed-sooty.vercel.app/api/user', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id: user.id,
+                        name: user.first_name,
+                        number: '', // Fill if you collect phone number
+                        referred_by: referred_by && referred_by !== String(user.id) ? referred_by : null
+                    })
+                });
+            }
+        }
 
-        // On page load, fetch user data from backend
+        // Call this on page load
         (async function () {
             showUserInfo();
-            await fetchUserData();
+            await upsertUserIfNeeded();
+            const userData = await fetchUserData(user?.id);
+            if (userData) {
+                currentBalance = userData.balance || 0;
+                totalCompletedTasks = userData.completed_tasks || 0;
+            }
             loadHome();
         })();
+
         console.log('Checking for Monetag function:', typeof show_98765432);
 if (typeof show_98765432 === 'function') {
     show_98765432().then(() => {
