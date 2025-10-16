@@ -221,7 +221,7 @@
                 console.log('Monetag function found, showing ad...');
                 show_10044805().then(() => {
                     alert('You have seen an ad!');
-                    currentBalance += parseFloat(reward);
+                    rewardUserForTask(user.id, reward); // reward is the amount for the task
                     modal.classList.add('hidden');
                     if (typeof onComplete === 'function') onComplete();
                 }).catch((err) => {
@@ -462,6 +462,48 @@ if (typeof show_10044805 === 'function') {
 } else {
     console.log('Monetag in-app function NOT found!');
 }
+
+// Call this after user completes a task and ad is watched
+async function rewardUserForTask(userId, rewardAmount) {
+    try {
+        // Fetch current user data first (optional, if you need to increment)
+        const userData = await fetchUserData(userId);
+        if (!userData) throw new Error('User data not found');
+
+        // Prepare updated values
+        const newBalance = (userData.balance || 0) + parseFloat(rewardAmount);
+        const newCompletedTasks = (userData.completed_tasks || 0) + 1;
+
+        // Update user in backend
+        const res = await fetch('https://backed-sooty.vercel.app/api/user/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                id: userId,
+                balance: newBalance,
+                completed_tasks: newCompletedTasks
+            })
+        });
+        const result = await res.json();
+        if (result.ok) {
+            // Optionally update UI or local variables
+            currentBalance = newBalance;
+            totalCompletedTasks = newCompletedTasks;
+        } else {
+            alert('Failed to update user stats.');
+        }
+    } catch (e) {
+        alert('Error rewarding user: ' + e.message);
+    }
+}
+
+// Example usage inside your ad reward logic:
+show_10044805().then(() => {
+    alert('You have seen an ad!');
+    rewardUserForTask(user.id, reward); // reward is the amount for the task
+    modal.classList.add('hidden');
+    if (typeof onComplete === 'function') onComplete();
+});
     </script>
 
 
