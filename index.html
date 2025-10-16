@@ -59,24 +59,27 @@
         let totalCompletedTasks = 0;
 
         // Fetch user data from backend
-        async function fetchUserData() {
-            if (!user) return;
+        async function fetchUserData(userId) {
             try {
-                const res = await fetch(`https://backed-sooty.vercel.app/api/user/${user.id}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    currentBalance = data.balance;
-                    totalCompletedTasks = data.completedTasks;
+                const res = await fetch(`https://backed-sooty.vercel.app/api/user/${userId}`);
+                if (!res.ok) throw new Error('Failed to fetch user data');
+                const result = await res.json();
+                if (result.ok) {
+                    // Access user data via result.data
+                    return result.data;
+                } else {
+                    throw new Error('API returned error');
                 }
             } catch (e) {
-                console.error('Failed to fetch user data', e);
+                console.error(e);
+                return null;
             }
         }
 
         // Send withdraw request to backend
         async function sendWithdrawRequest({ userId, method, number, amount }) {
             try {
-                const res = await fetch('http://localhost:3000/api/withdraw', {
+                const res = await fetch('https://backed-sooty.vercel.app/api/withdraw', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId, method, number, amount })
