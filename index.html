@@ -4,14 +4,14 @@
     <meta charset="UTF-8">
     <title>Telegram Mini App</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Tailwind CSS CDN -->
+     Tailwind CSS CDN 
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Supabase JS SDK -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+     Supabase JS SDK 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body class="bg-gray-50 min-h-screen flex flex-col">
 
-    <!-- Header -->
+     Header 
     <header class="bg-blue-700 text-white shadow-md">
         <div class="container mx-auto flex items-center justify-between px-4 py-3">
             <div class="flex items-center gap-3">
@@ -22,12 +22,12 @@
         </div>
     </header>
 
-    <!-- Main Content -->
+     Main Content 
     <main id="main-content" class="flex-1 container mx-auto px-4 py-6">
-        <!-- Content will be injected here -->
+         Content will be injected here 
     </main>
 
-    <!-- Bottom Navbar -->
+     Bottom Navbar 
     <nav class="fixed bottom-0 left-0 right-0 bg-white shadow-lg border-t z-50">
         <div class="container mx-auto flex justify-between px-4">
             <button id="nav-home" class="nav-btn flex flex-col items-center flex-1 py-2 text-blue-700" aria-label="Home">
@@ -49,51 +49,108 @@
         </div>
     </nav>
 
-    <!-- Telegram WebApp JS SDK -->
+     Telegram WebApp JS SDK 
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script>
-        // Initialize Supabase client (use anon/public key only for demo)
-        const supabaseUrl = 'https://uqackkstmdzefllutvrk.supabase.co';
-        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxYWNra3N0bWR6ZWZsbHV0dnJrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA0NDk3MzksImV4cCI6MjA3NjAyNTczOX0.rrvA-ZMTcQKxQiQAATwYE3awT1tGpCbY31FoBorPUUg'; // Never use service key here!
-        const supabase = supabase.createClient(supabaseUrl, supabaseKey);
+        const SUPABASE_URL = 'NEXT_PUBLIC_SUPABASE_URL';
+        const SUPABASE_ANON_KEY = 'NEXT_PUBLIC_SUPABASE_ANON_KEY';
+        
+        // Create Supabase client
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         // Telegram WebApp user authentication
         const tg = window.Telegram.WebApp;
         const user = tg.initDataUnsafe?.user;
 
-        // Replace these mock values with backend data
+        // User data variables
+        let userData = null;
         let currentBalance = 0;
         let totalCompletedTasks = 0;
 
-        // Fetch user data from backend
         async function fetchUserData(userId) {
             try {
-                const res = await fetch(`https://backed-sooty.vercel.app/api/user/${userId}`);
-                if (!res.ok) throw new Error('Failed to fetch user data');
-                const result = await res.json();
-                if (result.ok) {
-                    // Access user data via result.data
-                    return result.data;
-                } else {
-                    throw new Error('API returned error');
+                const { data, error } = await supabase
+                    .from('users')
+                    .select('*')
+                    .eq('id', userId)
+                    .single();
+                
+                if (error) {
+                    console.log('[v0] User not found, will create on first action');
+                    return null;
                 }
+                return data;
             } catch (e) {
-                console.error(e);
+                console.error('[v0] Error fetching user:', e);
                 return null;
             }
         }
 
-        // Send withdraw request to backend
+        async function upsertUser(userId, userName, referredBy = null) {
+            try {
+                const { data, error } = await supabase
+                    .from('users')
+                    .upsert({
+                        id: userId,
+                        name: userName,
+                        referred_by: referredBy
+                    }, {
+                        onConflict: 'id'
+                    })
+                    .select()
+                    .single();
+                
+                if (error) throw error;
+                return data;
+            } catch (e) {
+                console.error('[v0] Error upserting user:', e);
+                return null;
+            }
+        }
+
+        async function fetchTasks() {
+            try {
+                const { data, error } = await supabase
+                    .from('tasks')
+                    .select('*')
+                    .order('created_at', { ascending: true });
+                
+                if (error) throw error;
+                return data || [];
+            } catch (e) {
+                console.error('[v0] Error fetching tasks:', e);
+                return [];
+            }
+        }
+
         async function sendWithdrawRequest({ userId, method, number, amount }) {
             try {
-                const res = await fetch('https://backed-sooty.vercel.app/api/withdraw', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId, method, number, amount })
-                });
-                return await res.json();
+                const { data, error } = await supabase
+                    .from('withdrawals')
+                    .insert({
+                        user_id: userId,
+                        method: method,
+                        number: number,
+                        amount: amount,
+                        status: 'pending'
+                    })
+                    .select()
+                    .single();
+                
+                if (error) throw error;
+                
+                // Update user balance
+                const { error: updateError } = await supabase
+                    .from('users')
+                    .update({ balance: currentBalance - amount })
+                    .eq('id', userId);
+                
+                if (updateError) throw updateError;
+                
+                return { ok: true, data };
             } catch (e) {
-                return { ok: false, error: 'Network error' };
+                console.error('[v0] Error creating withdrawal:', e);
+                return { ok: false, error: e.message };
             }
         }
 
@@ -155,7 +212,7 @@
         }
 
         // Task Card Component
-        function taskCard({title, description, reward, idx}) {
+        function taskCard({id, title, description, reward, idx}) {
             return `
                 <div class="bg-white rounded-xl shadow-lg p-6 mb-5 flex flex-col sm:flex-row items-center gap-4 border border-blue-100 hover:shadow-2xl transition-shadow">
                     <div class="flex-1">
@@ -164,9 +221,9 @@
                             ${title}
                         </h2>
                         <p class="text-gray-600 mb-3">${description}</p>
-                        <span class="inline-block bg-green-100 text-green-700 text-xs px-3 py-1 rounded-full font-semibold mb-2">Reward: $${reward}</span>
+                        <span class="inline-block bg-green-100 text-green-700 text-xs px-3 py-1 rounded-full font-semibold mb-2">Reward: $${parseFloat(reward).toFixed(2)}</span>
                     </div>
-                    <button class="do-task-btn flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full font-semibold shadow transition" data-idx="${idx}">
+                    <button class="do-task-btn flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full font-semibold shadow transition" data-idx="${idx}" data-reward="${reward}">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"></path></svg>
                         Do Task
                     </button>
@@ -174,26 +231,28 @@
             `;
         }
 
-        // Task Section with Multiple Cards
-        function taskSection() {
-            const tasks = [
-                {title: "Watch Ad", description: "Watch a short video ad and earn instant rewards.", reward: "0.50"},
-                {title: "Join Channel", description: "Join our Telegram channel to stay updated and get rewards.", reward: "0.30"},
-                {title: "Complete Survey", description: "Fill out a quick survey and help us improve.", reward: "1.00"},
-            ];
+        async function taskSection() {
+            const tasks = await fetchTasks();
+            
+            const tasksHTML = tasks.length > 0 
+                ? tasks.map((task, idx) => taskCard({...task, idx})).join('')
+                : '<p class="text-gray-500">No tasks available at the moment.</p>';
+            
             setTimeout(() => {
-                document.querySelectorAll('.do-task-btn').forEach((btn, idx) => {
+                document.querySelectorAll('.do-task-btn').forEach((btn) => {
                     btn.onclick = () => {
-                        showAdAndReward(tasks[idx].reward, () => {
+                        const reward = btn.getAttribute('data-reward');
+                        showAdAndReward(reward, () => {
                             loadTask();
                         });
                     };
                 });
             }, 0);
+            
             return `
                 <h1 class="text-2xl font-bold mb-4">Tasks</h1>
                 <div>
-                    ${tasks.map((task, idx) => taskCard({...task, idx})).join('')}
+                    ${tasksHTML}
                 </div>
                 <section class="mt-6">
                     <div class="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-lg flex items-center gap-3">
@@ -220,89 +279,109 @@
         `;
         document.body.insertAdjacentHTML('beforeend', adModalHTML);
 
-        // Show ad modal and handle reward with Monetag
+        // Show ad modal and handle reward
         function showAdAndReward(reward, onComplete) {
             const modal = document.getElementById('ad-modal');
             const timerEl = document.getElementById('ad-timer');
             const closeBtn = document.getElementById('ad-close-btn');
-            timerEl.textContent = '';
-            closeBtn.style.display = 'none';
+            
+            let countdown = 5;
+            timerEl.textContent = countdown;
+            closeBtn.disabled = true;
+            closeBtn.classList.add('opacity-50', 'cursor-not-allowed');
             modal.classList.remove('hidden');
 
-            // Use Monetag Rewarded Interstitial
-            if (typeof show_10044805 === 'function') {
-                show_10044805().then(async () => {
-                    alert('You have seen an ad!');
-                    // Reward the user after ad is watched
+            const timer = setInterval(() => {
+                countdown--;
+                timerEl.textContent = countdown;
+                if (countdown <= 0) {
+                    clearInterval(timer);
+                    timerEl.textContent = 'Ad Complete!';
+                    closeBtn.disabled = false;
+                    closeBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                    closeBtn.classList.add('bg-green-600', 'text-white', 'hover:bg-green-700');
+                }
+            }, 1000);
+
+            closeBtn.onclick = async () => {
+                if (countdown <= 0) {
                     await rewardUserForTask(user.id, reward);
                     modal.classList.add('hidden');
                     if (typeof onComplete === 'function') onComplete();
-                }).catch((err) => {
-                    alert('Ad was not completed. No reward added.');
-                    modal.classList.add('hidden');
-                });
-            } else {
-                timerEl.textContent = 'Ad failed to load. Please try again.';
-                closeBtn.style.display = '';
-                closeBtn.onclick = () => {
-                    modal.classList.add('hidden');
-                };
-            }
+                }
+            };
         }
 
-        // Function to reward user for completing a task and update completed task counter
         async function rewardUserForTask(userId, rewardAmount) {
             try {
                 // Fetch current user data
-                const userData = await fetchUserData(userId);
-                if (!userData) throw new Error('User data not found');
+                const currentUser = await fetchUserData(userId);
+                if (!currentUser) {
+                    // Create user if doesn't exist
+                    await upsertUser(userId, user.first_name);
+                    const newUser = await fetchUserData(userId);
+                    if (!newUser) throw new Error('Failed to create user');
+                    userData = newUser;
+                }
 
-                // Prepare updated values
+                // Calculate new values
                 const newBalance = (userData.balance || 0) + parseFloat(rewardAmount);
                 const newCompletedTasks = (userData.completed_tasks || 0) + 1;
 
-                // Update user in backend
-                const res = await fetch('https://backed-sooty.vercel.app/api/user/update', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        id: userId,
+                // Update user in Supabase
+                const { error } = await supabase
+                    .from('users')
+                    .update({
                         balance: newBalance,
                         completed_tasks: newCompletedTasks
                     })
-                });
-                const result = await res.json();
-                if (result.ok) {
-                    // Update local variables and UI
-                    currentBalance = newBalance;
-                    totalCompletedTasks = newCompletedTasks;
-                    // Refresh stats on UI
-                    loadHome();
-                } else {
-                    alert('Failed to update user stats.');
-                }
+                    .eq('id', userId);
+
+                if (error) throw error;
+
+                // Update local variables
+                currentBalance = newBalance;
+                totalCompletedTasks = newCompletedTasks;
+                userData.balance = newBalance;
+                userData.completed_tasks = newCompletedTasks;
+
+                // Refresh home view
+                loadHome();
+                alert(`Congratulations! You earned $${parseFloat(rewardAmount).toFixed(2)}`);
             } catch (e) {
+                console.error('[v0] Error rewarding user:', e);
                 alert('Error rewarding user: ' + e.message);
             }
         }
 
         // Navbar navigation
         const mainContent = document.getElementById('main-content');
+        
+        function setActive(navId) {
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('text-blue-700');
+                btn.classList.add('text-gray-500');
+            });
+            document.getElementById(navId).classList.remove('text-gray-500');
+            document.getElementById(navId).classList.add('text-blue-700');
+        }
+
         function loadHome() {
             mainContent.innerHTML = homeSection();
             setActive('nav-home');
-            // Add event listener for Start Earning button
             setTimeout(() => {
                 const btn = document.getElementById('start-earning-btn');
                 if (btn) btn.onclick = loadTask;
             }, 0);
         }
-        function loadTask() {
-            mainContent.innerHTML = taskSection();
+        
+        async function loadTask() {
+            mainContent.innerHTML = '<div class="text-center py-8">Loading tasks...</div>';
+            mainContent.innerHTML = await taskSection();
             setActive('nav-task');
         }
+        
         function loadReffer() {
-            // Generate referral link using Telegram user ID
             const userId = user ? user.id : '';
             const referralLink = userId
                 ? `https://t.me/YOUR_BOT_USERNAME?start=${userId}`
@@ -319,54 +398,52 @@
                         <span class="block text-gray-600 mb-1 font-medium">Your Referral Link:</span>
                         <div class="flex items-center gap-2">
                             <input type="text" readonly value="${referralLink}" class="flex-1 px-3 py-2 border rounded bg-gray-100 text-gray-800 text-sm" id="ref-link-input">
-                            <button onclick="navigator.clipboard.writeText('${referralLink}')" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded text-sm font-semibold">Copy</button>
+                            <button onclick="copyReferralLink('${referralLink}')" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded text-sm font-semibold">Copy</button>
                         </div>
                     </div>
                     <div class="bg-green-50 border-l-4 border-green-400 p-4 rounded flex items-center gap-3 mt-4">
                         <svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"></path></svg>
-                        <span class="text-green-700 font-medium">Referral Bonus: <span class="font-bold">$0.25</span> for each friend who joins and completes a task!</span>
+                        <span class="text-green-700 font-medium">Referral Bonus: <span class="font-bold">$0.25</span> for each friend who joins!</span>
                     </div>
                 </section>
             `;
             setActive('nav-reffer');
         }
+
+        function copyReferralLink(link) {
+            navigator.clipboard.writeText(link).then(() => {
+                alert('Referral link copied to clipboard!');
+            }).catch(() => {
+                alert('Failed to copy link');
+            });
+        }
+
         function loadWallet() {
             mainContent.innerHTML = `
-        <h1 class="text-2xl font-bold mb-4">Wallet</h1>
-        <section class="bg-white rounded-xl shadow p-6 mb-4">
-            <div class="flex flex-col sm:flex-row sm:justify-between gap-4">
-                <div>
-                    <span class="block text-gray-500 text-xs mb-1">Balance</span>
-                    <span class="text-lg font-bold text-green-600">$${currentBalance.toFixed(2)}</span>
-                </div>
-                <div>
-                    <span class="block text-gray-500 text-xs mb-1">                    async function rewardUserForTask(userId, rewardAmount) {
-                        try {
-                            console.log('Rewarding user:', userId);
-                            const userData = await fetchUserData(userId);
-                            console.log('Fetched user data:', userData);
-                            if (!userData) throw new Error('User data not found');
-                            // ...rest of code...
-                        } catch (e) {
-                            alert('Error rewarding user: ' + e.message);
-                        }
-                    }umber</span>
-                    <span class="text-lg font-bold">${user ? user.id : '-'}</span>
-                </div>
-            </div>
-        </section>
-        <section>
-            <p class="text-gray-700 mb-4">Manage your wallet and transactions here.</p>
-            <button id="withdraw-btn" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded font-semibold shadow transition disabled:opacity-60" ${currentBalance < 10 ? 'disabled' : ''}>
-                Withdraw
-            </button>
-            <span class="block text-xs text-gray-500 mt-2">Minimum withdraw amount is $10</span>
-        </section>
-        <div id="withdraw-modal-root"></div>
-    `;
+                <h1 class="text-2xl font-bold mb-4">Wallet</h1>
+                <section class="bg-white rounded-xl shadow p-6 mb-4">
+                    <div class="flex flex-col sm:flex-row sm:justify-between gap-4">
+                        <div>
+                            <span class="block text-gray-500 text-xs mb-1">Balance</span>
+                            <span class="text-lg font-bold text-green-600">$${currentBalance.toFixed(2)}</span>
+                        </div>
+                        <div>
+                            <span class="block text-gray-500 text-xs mb-1">User Number</span>
+                            <span class="text-lg font-bold">${user ? user.id : '-'}</span>
+                        </div>
+                    </div>
+                </section>
+                <section>
+                    <p class="text-gray-700 mb-4">Manage your wallet and transactions here.</p>
+                    <button id="withdraw-btn" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded font-semibold shadow transition disabled:opacity-60" ${currentBalance < 10 ? 'disabled' : ''}>
+                        Withdraw
+                    </button>
+                    <span class="block text-xs text-gray-500 mt-2">Minimum withdraw amount is $10</span>
+                </section>
+                <div id="withdraw-modal-root"></div>
+            `;
             setActive('nav-wallet');
 
-            // Withdraw button event
             setTimeout(() => {
                 const withdrawBtn = document.getElementById('withdraw-btn');
                 if (withdrawBtn) {
@@ -379,54 +456,50 @@
         function showWithdrawModal() {
             const modalRoot = document.getElementById('withdraw-modal-root');
             modalRoot.innerHTML = `
-        <div id="withdraw-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div class="bg-white rounded-xl shadow-lg p-6 w-full max-w-sm relative">
-                <h2 class="text-xl font-bold mb-4 text-blue-700">Withdraw Request</h2>
-                <form id="withdraw-form" class="space-y-4">
-                    <div>
-                        <label class="block text-gray-700 font-medium mb-1">Payment Method</label>
-                        <select id="payment-method" class="w-full border rounded px-3 py-2" required>
-                            <option value="">Select</option>
-                            <option value="bkash">bKash</option>
-                            <option value="nagad">Nagad</option>
-                        </select>
+                <div id="withdraw-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div class="bg-white rounded-xl shadow-lg p-6 w-full max-w-sm relative">
+                        <h2 class="text-xl font-bold mb-4 text-blue-700">Withdraw Request</h2>
+                        <form id="withdraw-form" class="space-y-4">
+                            <div>
+                                <label class="block text-gray-700 font-medium mb-1">Payment Method</label>
+                                <select id="payment-method" class="w-full border rounded px-3 py-2" required>
+                                    <option value="">Select</option>
+                                    <option value="bkash">bKash</option>
+                                    <option value="nagad">Nagad</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 font-medium mb-1">Number</label>
+                                <input id="payment-number" type="text" maxlength="11" pattern="\\d{11}" class="w-full border rounded px-3 py-2" placeholder="e.g. 01XXXXXXXXX" required>
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 font-medium mb-1">Amount ($)</label>
+                                <input id="withdraw-amount" type="number" min="10" max="${Math.floor(currentBalance)}" class="w-full border rounded px-3 py-2" value="10" required>
+                            </div>
+                            <div class="flex justify-end gap-2 mt-4">
+                                <button type="button" id="withdraw-cancel" class="bg-gray-300 text-gray-700 px-4 py-2 rounded font-semibold">Cancel</button>
+                                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-semibold">Submit</button>
+                            </div>
+                        </form>
                     </div>
-                    <div>
-                        <label class="block text-gray-700 font-medium mb-1">Number</label>
-                        <input id="payment-number" type="text" maxlength="11" pattern="\\d{11}" class="w-full border rounded px-3 py-2" placeholder="e.g. 01XXXXXXXXX" required>
-                    </div>
-                    <div>
-                        <label class="block text-gray-700 font-medium mb-1">Amount ($)</label>
-                        <input id="withdraw-amount" type="number" min="10" max="${Math.floor(currentBalance)}" class="w-full border rounded px-3 py-2" value="10" required>
-                    </div>
-                    <div class="flex justify-end gap-2 mt-4">
-                        <button type="button" id="withdraw-cancel" class="bg-gray-300 text-gray-700 px-4 py-2 rounded font-semibold">Cancel</button>
-                        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-semibold">Submit</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    `;
+                </div>
+            `;
 
-            // Cancel button
             document.getElementById('withdraw-cancel').onclick = () => {
                 modalRoot.innerHTML = '';
             };
 
-            // Form submit
             document.getElementById('withdraw-form').onsubmit = function(e) {
                 e.preventDefault();
                 const method = document.getElementById('payment-method').value;
                 const number = document.getElementById('payment-number').value;
                 const amount = parseFloat(document.getElementById('withdraw-amount').value);
 
-                // Validation
                 if (!method || !/^\d{11}$/.test(number) || isNaN(amount) || amount < 10 || amount > currentBalance) {
                     alert('Please fill all fields correctly.');
                     return;
                 }
 
-                // Confirm/Decline popup
                 showWithdrawConfirm({method, number, amount});
             };
         }
@@ -435,27 +508,27 @@
         function showWithdrawConfirm({ method, number, amount }) {
             const modalRoot = document.getElementById('withdraw-modal-root');
             modalRoot.innerHTML = `
-        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div class="bg-white rounded-xl shadow-lg p-6 w-full max-w-sm relative">
-                <h2 class="text-xl font-bold mb-4 text-blue-700">Confirm Withdraw</h2>
-                <div class="mb-4">
-                    <div class="mb-2"><span class="font-semibold">Method:</span> ${method}</div>
-                    <div class="mb-2"><span class="font-semibold">Number:</span> ${number}</div>
-                    <div class="mb-2"><span class="font-semibold">Amount:</span> $${amount.toFixed(2)}</div>
+                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div class="bg-white rounded-xl shadow-lg p-6 w-full max-w-sm relative">
+                        <h2 class="text-xl font-bold mb-4 text-blue-700">Confirm Withdraw</h2>
+                        <div class="mb-4">
+                            <div class="mb-2"><span class="font-semibold">Method:</span> ${method}</div>
+                            <div class="mb-2"><span class="font-semibold">Number:</span> ${number}</div>
+                            <div class="mb-2"><span class="font-semibold">Amount:</span> $${amount.toFixed(2)}</div>
+                        </div>
+                        <div class="flex justify-end gap-2">
+                            <button id="withdraw-decline" class="bg-gray-300 text-gray-700 px-4 py-2 rounded font-semibold">Decline</button>
+                            <button id="withdraw-confirm" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded font-semibold">Confirm</button>
+                        </div>
+                    </div>
                 </div>
-                <div class="flex justify-end gap-2">
-                    <button id="withdraw-decline" class="bg-gray-300 text-gray-700 px-4 py-2 rounded font-semibold">Decline</button>
-                    <button id="withdraw-confirm" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded font-semibold">Confirm</button>
-                </div>
-            </div>
-        </div>
-    `;
+            `;
 
             document.getElementById('withdraw-decline').onclick = () => {
                 modalRoot.innerHTML = '';
             };
+            
             document.getElementById('withdraw-confirm').onclick = async () => {
-                // Send request to backend
                 const result = await sendWithdrawRequest({
                     userId: user ? user.id : '',
                     method,
@@ -465,7 +538,8 @@
                 modalRoot.innerHTML = '';
                 if (result.ok) {
                     currentBalance -= amount;
-                    alert('Withdraw request submitted!');
+                    userData.balance = currentBalance;
+                    alert('Withdraw request submitted successfully!');
                     loadWallet();
                 } else {
                     alert('Withdraw failed: ' + (result.error || 'Unknown error'));
@@ -475,119 +549,50 @@
 
         // Extract referral ID from Telegram WebApp start parameter
         function getReferralId() {
-            // Telegram Mini App passes start param as tg.initDataUnsafe.start_param
             return tg.initDataUnsafe?.start_param || null;
         }
 
-        // On first user creation/upsert, send referred_by if present
-        async function upsertUserIfNeeded() {
-            if (!user) return;
-            // Fetch user data first
-            const userData = await fetchUserData(user.id);
-            if (!userData) {
-                // New user, upsert with referral if present
-                const referred_by = getReferralId();
-                await fetch('https://backed-sooty.vercel.app/api/user', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        id: user.id,
-                        name: user.first_name,
-                        number: '', // Fill if you collect phone number
-                        referred_by: referred_by && referred_by !== String(user.id) ? referred_by : null
-                    })
-                });
-            }
-        }
-
-        // Call this on page load
-        (async function () {
+        async function initializeApp() {
             showUserInfo();
-            await upsertUserIfNeeded();
-            const userData = await fetchUserData(user?.id);
+            
+            if (!user) {
+                loadHome();
+                return;
+            }
+
+            // Fetch user data
+            userData = await fetchUserData(user.id);
+            
+            if (!userData) {
+                // New user - create with referral if present
+                const referredBy = getReferralId();
+                userData = await upsertUser(
+                    user.id, 
+                    user.first_name, 
+                    referredBy && referredBy !== String(user.id) ? referredBy : null
+                );
+            }
+
             if (userData) {
                 currentBalance = userData.balance || 0;
                 totalCompletedTasks = userData.completed_tasks || 0;
             }
+
             loadHome();
-        })();
-
-        console.log('Checking for Monetag function:', typeof show_98765432);
-if (typeof show_98765432 === 'function') {
-    show_98765432().then(() => {
-        // reward user
-    });
-}
-
-// Call this once (e.g., after page load or when user navigates to a section)
-if (typeof show_10044805 === 'function') {
-    show_10044805({
-        type: 'inApp',
-        inAppSettings: {
-            frequency: 2,
-            capping: 0.1,
-            interval: 30,
-            timeout: 5,
-            everyPage: false
         }
-    });
-} else {
-    console.log('Monetag in-app function NOT found!');
-}
 
-// Call this after user completes a task and ad is watched
-async function rewardUserForTask(userId, rewardAmount) {
-    try {
-        // Fetch current user data first (optional, if you need to increment)
-        const userData = await fetchUserData(userId);
-        if (!userData) throw new Error('User data not found');
+        // Navigation event listeners
+        document.getElementById('nav-home').onclick = loadHome;
+        document.getElementById('nav-task').onclick = loadTask;
+        document.getElementById('nav-reffer').onclick = loadReffer;
+        document.getElementById('nav-wallet').onclick = loadWallet;
 
-        // Prepare updated values
-        const newBalance = (userData.balance || 0) + parseFloat(rewardAmount);
-        const newCompletedTasks = (userData.completed_tasks || 0) + 1;
-
-        // Update user in backend
-        const res = await fetch('https://backed-sooty.vercel.app/api/user/update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                id: userId,
-                balance: newBalance,
-                completed_tasks: newCompletedTasks
-            })
-        });
-        const result = await res.json();
-        if (result.ok) {
-            // Optionally update UI or local variables
-            currentBalance = newBalance;
-            totalCompletedTasks = newCompletedTasks;
-        } else {
-            alert('Failed to update user stats.');
-        }
-    } catch (e) {
-        alert('Error rewarding user: ' + e.message);
-    }
-}
-
-// Example usage inside your ad reward logic:
-show_10044805().then(() => {
-    alert('You have seen an ad!');
-    rewardUserForTask(user.id, reward); // reward is the amount for the task
-    modal.classList.add('hidden');
-    if (typeof onComplete === 'function') onComplete();
-});
+        // Initialize app on page load
+        initializeApp();
     </script>
 
-
-    <!-- Monetag Ad Script -->
-<script async="async" data-cfasync="false" src="//pl20548485.highcpmrevenuegate.com/1c6b4e2b3a2b6f7b7e1b6e2e3e3b3e2e/invoke.js"></script>
-<script src='//libtl.com/sdk.js' data-zone='10044805' data-sdk='show_10044805'></script>
-<!--
-    ⚠️ SECURITY WARNING:
-    Never paste your Telegram bot token here or in any frontend code.
-    Use your bot token only on your backend server (Node.js, Python, PHP, etc.)
-    Example (Node.js):
-    // const bot = new TelegramBot('YOUR_BOT_TOKEN', options);
--->
+     Monetag Ad Script 
+    <script async="async" data-cfasync="false" src="//pl20548485.highcpmrevenuegate.com/1c6b4e2b3a2b6f7b7e1b6e2e3e3b3e2e/invoke.js"></script>
+    <script src='//libtl.com/sdk.js' data-zone='10044805' data-sdk='show_10044805'></script>
 </body>
 </html>
